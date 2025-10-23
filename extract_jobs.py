@@ -1,3 +1,10 @@
+"""Extract job listings from a saved iimjobs HTML page and export to Excel.
+
+This script parses loosely structured markup with BeautifulSoup using
+heuristics to identify job cards, then extracts core fields (title, company,
+location, experience, link) and writes them to an `.xlsx` file.
+"""
+
 import sys
 import re
 from pathlib import Path
@@ -6,17 +13,20 @@ from typing import List, Dict, Optional
 from bs4 import BeautifulSoup, Tag
 import pandas as pd
 
+# Paths for input HTML and output Excel
 INPUT_PATH = Path('/workspace/Page_49_htmlr1.htm')
 OUTPUT_XLSX = Path('/workspace/jobs_page49.xlsx')
 
 
 def extract_visible_text(node: Tag) -> str:
+    """Return the node's text with whitespace normalized to single spaces."""
     text = node.get_text(" ", strip=True)
     # Normalize whitespace
     return re.sub(r"\s+", " ", text)
 
 
 def has_class_like(node: Tag, substrings: List[str]) -> bool:
+    """Check whether any of the given substrings appear in the node's classes."""
     classes = node.get("class") or []
     # Also check attributes that may encode class-like semantics
     class_attr = " ".join(classes).lower()
@@ -27,6 +37,7 @@ def has_class_like(node: Tag, substrings: List[str]) -> bool:
 
 
 def find_job_containers(soup: BeautifulSoup) -> List[Tag]:
+    """Locate likely job container elements using class/tag heuristics."""
     candidates: List[Tag] = []
     # Consider common container tags
     for tag_name in ["article", "li", "div", "section"]:
@@ -50,6 +61,7 @@ def find_job_containers(soup: BeautifulSoup) -> List[Tag]:
 
 
 def choose_title(node: Tag) -> Optional[Tag]:
+    """Pick the best title element within a container (anchor/heading)."""
     # Prefer heading anchors or headings
     title = None
     # 1) Anchor with /j/ or iimjobs link
@@ -75,6 +87,7 @@ def choose_title(node: Tag) -> Optional[Tag]:
 
 
 def choose_company(node: Tag) -> Optional[str]:
+    """Extract company/employer text if present in the container."""
     # Look for elements with class names indicating company
     for el in node.find_all(True):
         if has_class_like(el, ["company", "employer", "org", "firm", "recruiter"]):
@@ -86,6 +99,7 @@ def choose_company(node: Tag) -> Optional[str]:
 
 
 def choose_location(node: Tag) -> Optional[str]:
+    """Extract location text via class hints or inline markers."""
     # Look for elements with class names indicating location
     for el in node.find_all(True):
         if has_class_like(el, ["location", "loc", "city", "place"]):
@@ -101,6 +115,7 @@ def choose_location(node: Tag) -> Optional[str]:
 
 
 def choose_experience(node: Tag) -> Optional[str]:
+    """Extract experience information from the container content."""
     # Common experience markers: 'Exp', 'Experience', 'Years'
     text = extract_visible_text(node)
     m = re.search(r"\b(Exp|Experience)\s*[:|-]?\s*([0-9]+\+?\s*-?\s*[0-9]*\s*years?)", text, re.I)
@@ -116,6 +131,7 @@ def choose_experience(node: Tag) -> Optional[str]:
 
 
 def choose_link(title_node: Tag) -> Optional[str]:
+    """Find the most relevant job link starting from the title node."""
     # If the title node is an anchor, use its href
     if title_node.name == "a" and title_node.has_attr("href"):
         return title_node.get("href")
@@ -133,6 +149,7 @@ def choose_link(title_node: Tag) -> Optional[str]:
 
 
 def absolutize(url: str) -> str:
+    """Convert a relative URL to an absolute iimjobs URL."""
     if not url:
         return url
     if url.startswith("http://") or url.startswith("https://"):
@@ -146,6 +163,7 @@ def absolutize(url: str) -> str:
 
 
 def extract_jobs(html_path: Path) -> List[Dict[str, str]]:
+    """Parse the HTML file and return a list of job dictionaries."""
     html = html_path.read_text(encoding="utf-8", errors="ignore")
     soup = BeautifulSoup(html, "lxml")
 
@@ -194,6 +212,7 @@ def extract_jobs(html_path: Path) -> List[Dict[str, str]]:
 
 
 def dedupe_jobs(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Remove duplicate rows based on (title, link) case-insensitive key."""
     seen = set()
     unique_rows: List[Dict[str, str]] = []
     for r in rows:
@@ -206,6 +225,7 @@ def dedupe_jobs(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
 
 
 def main() -> int:
+    """Entry point: read HTML, extract jobs, write Excel, report count."""
     if not INPUT_PATH.exists():
         print(f"Input HTML not found: {INPUT_PATH}", file=sys.stderr)
         return 2
